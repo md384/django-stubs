@@ -153,17 +153,9 @@ def set_descriptor_types_for_field(
         is_get_nullable=is_get_nullable or is_nullable,
     )
 
-    # include the default_return_type in the base search since it might itself be the base field class
-    base_field = next(
-        (
-            base
-            for base in [default_return_type, *default_return_type.type.bases]
-            if base.type.fullname == FIELD_FULLNAME
-        ),
-        None,
-    )
+    base_field = next((base for base in default_return_type.type.mro if base.fullname == FIELD_FULLNAME), None)
     if base_field:
-        mapped_instance = map_instance_to_supertype(default_return_type, base_field.type)
+        mapped_instance = map_instance_to_supertype(default_return_type, base_field)
         mapped_set_type, mapped_get_type = mapped_instance.args
 
         # bail if either mapped_set_type or mapped_get_type have type Never
