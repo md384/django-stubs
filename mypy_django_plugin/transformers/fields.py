@@ -4,14 +4,16 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db.models.fields import AutoField, Field
 from django.db.models.fields.related import RelatedField
 from django.db.models.fields.reverse_related import ForeignObjectRel
+from mypy.maptype import map_instance_to_supertype
 from mypy.nodes import AssignmentStmt, NameExpr, TypeInfo
 from mypy.plugin import FunctionContext
-from mypy.types import AnyType, Instance, ProperType, TypeOfAny, UnionType
+from mypy.types import AnyType, Instance, ProperType, TypeOfAny, UninhabitedType, UnionType
 from mypy.types import Type as MypyType
 
 from mypy_django_plugin.django.context import DjangoContext
 from mypy_django_plugin.exceptions import UnregisteredModelError
 from mypy_django_plugin.lib import fullnames, helpers
+from mypy_django_plugin.lib.fullnames import FIELD_FULLNAME
 from mypy_django_plugin.lib.helpers import parse_bool
 from mypy_django_plugin.transformers import manytomany
 
@@ -150,6 +152,30 @@ def set_descriptor_types_for_field(
         is_set_nullable=is_set_nullable or is_nullable,
         is_get_nullable=is_get_nullable or is_nullable,
     )
+
+    # include the default_return_type in the base search since it might itself be the base field class
+    base_field = next(
+        (
+            base
+            for base in [default_return_type, *default_return_type.type.bases]
+            if base.type.fullname == FIELD_FULLNAME
+        ),
+        None,
+    )
+    if base_field:
+        mapped_instance = map_instance_to_supertype(default_return_type, base_field.type)
+        mapped_set_type, mapped_get_type = mapped_instance.args
+
+        # bail if either mapped_set_type or mapped_get_type have type Never
+        if not (isinstance(mapped_set_type, UninhabitedType) or isinstance(mapped_get_type, UninhabitedType)):
+            # only replace set_type and get_type if their original value is Any
+            set_type = helpers.convert_any_to_type(
+                helpers.make_optional(mapped_set_type) if is_set_nullable or is_nullable else mapped_set_type, set_type
+            )
+            get_type = helpers.convert_any_to_type(
+                helpers.make_optional(mapped_get_type) if is_get_nullable or is_nullable else mapped_get_type, get_type
+            )
+
     return helpers.reparametrize_instance(default_return_type, [set_type, get_type])
 
 
